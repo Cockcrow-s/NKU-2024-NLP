@@ -1,46 +1,46 @@
+import itertools
 import torch
-import datetime
 
 
-def tprint(s):
+def named_grad_param(model, keys):
     '''
-        print datetime and s
-        @params:
-            s (str): the string to be printed
+        Return a generator that generates learnable named parameters in
+        model[key] for key in keys.
     '''
-    print('{}: {}'.format(
-        datetime.datetime.now(), s),
-        flush=True)
+    if len(keys) == 1:
+        return filter(lambda p: p[1].requires_grad,
+                model[keys[0]].named_parameters())
+    else:
+        return filter(lambda p: p[1].requires_grad,
+                itertools.chain.from_iterable(
+                    model[key].named_parameters() for key in keys))
 
-def to_tensor(data, cuda, exclude_keys=[]):
+
+def grad_param(model, keys):
     '''
-        Convert all values in the data into torch.tensor
+        Return a generator that generates learnable parameters in
+        model[key] for key in keys.
     '''
-    for key in data.keys():
-        if key in exclude_keys:
-            continue
-
-        data[key] = torch.from_numpy(data[key])
-        if cuda != -1:
-            data[key] = data[key].cuda(cuda)
-
-    return data
+    if len(keys) == 1:
+        return filter(lambda p: p.requires_grad,
+                model[keys[0]].parameters())
+    else:
+        return filter(lambda p: p.requires_grad,
+                itertools.chain.from_iterable(
+                    model[key].parameters() for key in keys))
 
 
-def select_subset(old_data, new_data, keys, idx, max_len=None):
+def get_norm(model):
     '''
-        modifies new_data
-
-        @param old_data target dict
-        @param new_data source dict
-        @param keys list of keys to transfer
-        @param idx list of indices to select
-        @param max_len (optional) select first max_len entries along dim 1
+        Compute norm of the gradients
     '''
+    total_norm = 0
 
-    for k in keys:
-        new_data[k] = old_data[k][idx]
-        if max_len is not None and len(new_data[k].shape) > 1:
-            new_data[k] = new_data[k][:, :max_len]
+    for p in model.parameters():
+        if p.grad is not None:
+            p_norm = p.grad.data.norm()
+            total_norm += p_norm.item() ** 2
 
-    return new_data
+    total_norm = total_norm ** 0.5
+
+    return total_norm
