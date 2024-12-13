@@ -368,7 +368,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--do_train", default=False, action="store_true")
-    parser.add_argument("--do_zeroshot", default=True, action="store_true")
+    parser.add_argument("--do_zeroshot", default=False, action="store_true")
     parser.add_argument("--do_check", default=False, action="store_true")
 
     parser.add_argument("--use_calibration", default=False, action="store_true")
@@ -380,7 +380,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--log_file", default=None, type=str)
 
-    parser.add_argument("--task", type=str, default="sst-5")
+    parser.add_argument("--task", type=str, default="SST-2")
     parser.add_argument("--train_task", type=str, default=None)
 
     parser.add_argument("--k", type=str, default="16")
@@ -393,8 +393,8 @@ if __name__ == '__main__':
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--out_dir", type=str, default="out")
 
-    parser.add_argument("--split", type=str, default="test")
-    parser.add_argument("--method", type=str, default="channel")
+    parser.add_argument("--split", type=str, default=None)
+    parser.add_argument("--method", type=str, default="direct")
     parser.add_argument("--n_prefix", type=int, default=20)
     parser.add_argument("--gpt2", type=str, default="gpt2-large")
 
