@@ -11,22 +11,27 @@ from util.eval import compute_score, compute_based_on_path
 from models.loss import constraint_multi_depth_loss_func, flat_contrastive_loss_func
 
 
-
 class HierVerbPromptForClassification(PromptForClassification):
-    def __init__(self,
-                 plm: PreTrainedModel,
-                 template: Template,
-                 verbalizer_list: List[Verbalizer],
-                 freeze_plm: bool = False,
-                 plm_eval_mode: bool = False,
-                 verbalizer_mode=False,
-                 args=None,
-                 processor=None,
-                 logger=None,
-                 use_cuda=True
-                 ):
-        super().__init__(plm=plm, template=template, verbalizer=verbalizer_list[0], freeze_plm=freeze_plm,
-                         plm_eval_mode=plm_eval_mode)
+    def __init__(
+        self,
+        plm: PreTrainedModel,
+        template: Template,
+        verbalizer_list: List[Verbalizer],
+        freeze_plm: bool = False,
+        plm_eval_mode: bool = False,
+        verbalizer_mode=False,
+        args=None,
+        processor=None,
+        logger=None,
+        use_cuda=True,
+    ):
+        super().__init__(
+            plm=plm,
+            template=template,
+            verbalizer=verbalizer_list[0],
+            freeze_plm=freeze_plm,
+            plm_eval_mode=plm_eval_mode,
+        )
         self.verbalizer_list = verbalizer_list
         self.verbLength = len(self.verbalizer_list)
         self.verbalizer_mode = verbalizer_mode
@@ -42,6 +47,20 @@ class HierVerbPromptForClassification(PromptForClassification):
         self.flag_constraint_loss = False
         self.flag_contrastive_loss = False
         self.flag_contrastive_logits = False
+
+    def compute_label_weights(self, labels):
+        """
+        计算每个标签的权重，用于处理标签不平衡。
+
+        Args:
+            labels: 真实标签
+        Returns:
+            label_weights: 标签权重
+        """
+        label_counts = torch.bincount(labels)
+        total_count = len(labels)
+        label_weights = total_count / (len(label_counts) * label_counts.float())
+        return label_weights
 
     def forward(self, batch) -> torch.Tensor:
         r"""
@@ -61,6 +80,7 @@ class HierVerbPromptForClassification(PromptForClassification):
         constraint_loss = None
         contrastive_loss = None
         args = self.args
+        label_weights = self.compute_label_weights(batch["label"])
         if args.use_dropout_sim and self.training:
             if not self.flag_contrastive_logits:
                 print("using contrastive_logits")
@@ -71,7 +91,9 @@ class HierVerbPromptForClassification(PromptForClassification):
                 for i in v:
                     tmp.append(i)
                     tmp.append(i)
-                contrastive_batch[k] = torch.stack(tmp) if isinstance(tmp[0], torch.Tensor) else tmp
+                contrastive_batch[k] = (
+                    torch.stack(tmp) if isinstance(tmp[0], torch.Tensor) else tmp
+                )
                 contrastive_batch[k] = contrastive_batch[k].to("cuda:0")
             batch = contrastive_batch
 
@@ -80,18 +102,21 @@ class HierVerbPromptForClassification(PromptForClassification):
         # outputs = self.verbalizer1.gather_outputs(outputs)
 
         if isinstance(outputs, tuple):
-            outputs_at_mask = [self.extract_at_mask(output, batch) for output in outputs]
+            outputs_at_mask = [
+                self.extract_at_mask(output, batch) for output in outputs
+            ]
         else:
             outputs_at_mask = self.extract_at_mask(outputs, batch)
         logits = []
         for idx in range(self.verbLength):
-            label_words_logtis = self.__getattr__(f"verbalizer{idx}").process_outputs(outputs_at_mask[:, idx, :],
-                                                                                      batch=batch)
+            label_words_logtis = self.__getattr__(f"verbalizer{idx}").process_outputs(
+                outputs_at_mask[:, idx, :], batch=batch
+            )
             logits.append(label_words_logtis)
 
         if self.training:
 
-            labels = batch['label']
+            labels = batch["label"]
 
             hier_labels = []
             hier_labels.insert(0, labels)
@@ -99,16 +124,22 @@ class HierVerbPromptForClassification(PromptForClassification):
                 cur_depth_labels = torch.zeros_like(labels)
                 for i in range(len(labels)):
                     # cur_depth_labels[i] = label1_to_label0_mapping[labels[i].tolist()]
-                    cur_depth_labels[i] = self.processor.hier_mapping[idx][1][hier_labels[0][i].tolist()]
+                    cur_depth_labels[i] = self.processor.hier_mapping[idx][1][
+                        hier_labels[0][i].tolist()
+                    ]
                 hier_labels.insert(0, cur_depth_labels)
 
             ## MLM loss
             if args.lm_training:
 
-                input_ids = batch['input_ids']
+                input_ids = batch["input_ids"]
                 input_ids, labels = _mask_tokens(self.tokenizer, input_ids.cpu())
 
-                lm_inputs = {"input_ids": input_ids, "attention_mask": batch['attention_mask'], "labels": labels}
+                lm_inputs = {
+                    "input_ids": input_ids,
+                    "attention_mask": batch["attention_mask"],
+                    "labels": labels,
+                }
 
                 for k, v in lm_inputs.items():
                     if v is not None:
@@ -134,24 +165,38 @@ class HierVerbPromptForClassification(PromptForClassification):
             ## hierarchical constraint chain
             if args.constraint_loss:
                 if not self.flag_constraint_loss:
-                    print(f"using constraint loss with cs_mode {args.cs_mode} eval_mode {args.eval_mode}")
+                    print(
+                        f"using constraint loss with cs_mode {args.cs_mode} eval_mode {args.eval_mode}"
+                    )
                     self.flag_constraint_loss = True
-                constraint_loss = constraint_multi_depth_loss_func(logits, loss_func, hier_labels, self.processor, args,
-                                                                   use_cuda=self.use_cuda, mode=args.cs_mode)
+                constraint_loss = constraint_multi_depth_loss_func(
+                    logits,
+                    loss_func,
+                    hier_labels,
+                    self.processor,
+                    args,
+                    use_cuda=self.use_cuda,
+                    mode=args.cs_mode,
+                )
             ## flat contrastive loss
             if args.contrastive_loss:
                 if not self.flag_contrastive_loss:
-                    print(f"using flat contrastive loss with alpha {args.contrastive_alpha}")
+                    print(
+                        f"using flat contrastive loss with alpha {args.contrastive_alpha}"
+                    )
                     if args.use_dropout_sim:
                         print("using use_dropout_sim")
                     self.flag_contrastive_loss = True
-                contrastive_loss = flat_contrastive_loss_func(hier_labels, self.processor,
-                                                                            outputs_at_mask,
-                                                                            imbalanced_weight=args.imbalanced_weight,
-                                                                            contrastive_level=args.contrastive_level,
-                                                                            imbalanced_weight_reverse=args.imbalanced_weight_reverse,
-                                                                            depth=args.depth,
-                                                                            use_cuda=self.use_cuda)
+                contrastive_loss = flat_contrastive_loss_func(
+                    hier_labels,
+                    self.processor,
+                    outputs_at_mask,
+                    imbalanced_weight=args.imbalanced_weight,
+                    contrastive_level=args.contrastive_level,
+                    imbalanced_weight_reverse=args.imbalanced_weight_reverse,
+                    depth=args.depth,
+                    use_cuda=self.use_cuda,
+                )
 
             if lm_loss is not None:
                 if args.lm_alpha != -1:
@@ -162,7 +207,10 @@ class HierVerbPromptForClassification(PromptForClassification):
 
             if constraint_loss is not None:
                 if args.constraint_alpha != -1:
-                    loss = loss * args.constraint_alpha + (1 - args.constraint_alpha) * constraint_loss
+                    loss = (
+                        loss * args.constraint_alpha
+                        + (1 - args.constraint_alpha) * constraint_loss
+                    )
                 else:
                     loss += constraint_loss
                 loss_details[2] += constraint_loss.item()
@@ -193,7 +241,10 @@ class HierVerbPromptForClassification(PromptForClassification):
 
             for i in range(len(label_dict)):
                 label_emb.append(
-                    input_embeds.weight.index_select(0, torch.tensor(label_dict[i], device=self.device)).mean(dim=0))
+                    input_embeds.weight.index_select(
+                        0, torch.tensor(label_dict[i], device=self.device)
+                    ).mean(dim=0)
+                )
             label_emb = torch.stack(label_emb)
             label_emb_list.append(label_emb)
         if self.args.use_hier_mean:
@@ -202,22 +253,31 @@ class HierVerbPromptForClassification(PromptForClassification):
                 cur_depth_length = len(self.processor.label_list[depth_idx])
                 for i in range(cur_depth_length):
                     cur_label_emb[i] = cur_label_emb[i] + label_emb_list[depth_idx + 1][
-                                                          self.processor.hier_mapping[depth_idx][0][i], :].mean(dim=0)
+                        self.processor.hier_mapping[depth_idx][0][i], :
+                    ].mean(dim=0)
                 label_emb_list[depth_idx] = cur_label_emb
 
         for idx in range(self.args.depth):
             label_emb = label_emb_list[idx]
             self.print_info(f"depth {idx}: {label_emb.shape}")
             if "0.1.2" in openprompt.__path__[0]:
-                self.__getattr__(f"verbalizer{idx}").head_last_layer.weight.data = label_emb
-                self.__getattr__(f"verbalizer{idx}").head_last_layer.weight.data.requires_grad = True
+                self.__getattr__(f"verbalizer{idx}").head_last_layer.weight.data = (
+                    label_emb
+                )
+                self.__getattr__(
+                    f"verbalizer{idx}"
+                ).head_last_layer.weight.data.requires_grad = True
             else:
-                getattr(self.__getattr__(f"verbalizer{idx}").head.predictions,
-                        'decoder').weight.data = label_emb
-                getattr(self.__getattr__(f"verbalizer{idx}").head.predictions,
-                        'decoder').weight.data.requires_grad = True
+                getattr(
+                    self.__getattr__(f"verbalizer{idx}").head.predictions, "decoder"
+                ).weight.data = label_emb
+                getattr(
+                    self.__getattr__(f"verbalizer{idx}").head.predictions, "decoder"
+                ).weight.data.requires_grad = True
 
-    def evaluate(self, dataloader, processor, desc="Valid", mode=0, device="cuda:0", args=None):
+    def evaluate(
+        self, dataloader, processor, desc="Valid", mode=0, device="cuda:0", args=None
+    ):
         self.eval()
         pred = []
         truth = []
@@ -226,21 +286,29 @@ class HierVerbPromptForClassification(PromptForClassification):
         depth = len(hier_mapping) + 1
         all_length = len(processor.all_labels)
         for step, batch in enumerate(pbar):
-            if hasattr(batch, 'cuda'):
+            if hasattr(batch, "cuda"):
                 batch = batch.cuda()
             else:
-                batch = tuple(t.to(device) if isinstance(t, torch.Tensor) else t for t in batch)
-                batch = {"input_ids": batch[0], "attention_mask": batch[1],
-                         "label": batch[2], "loss_ids": batch[3]}
+                batch = tuple(
+                    t.to(device) if isinstance(t, torch.Tensor) else t for t in batch
+                )
+                batch = {
+                    "input_ids": batch[0],
+                    "attention_mask": batch[1],
+                    "label": batch[2],
+                    "loss_ids": batch[3],
+                }
             logits = self(batch)
-            leaf_labels = batch['label']
+            leaf_labels = batch["label"]
 
             hier_labels = []
             hier_labels.insert(0, leaf_labels)
             for idx in range(depth - 2, -1, -1):
                 cur_depth_labels = torch.zeros_like(leaf_labels)
                 for i in range(len(leaf_labels)):
-                    cur_depth_labels[i] = hier_mapping[idx][1][hier_labels[0][i].tolist()]
+                    cur_depth_labels[i] = hier_mapping[idx][1][
+                        hier_labels[0][i].tolist()
+                    ]
                 hier_labels.insert(0, cur_depth_labels)
 
             if isinstance(logits, list):
@@ -266,15 +334,22 @@ class HierVerbPromptForClassification(PromptForClassification):
                 ori_logits = torch.softmax(logits[depth_idx], dim=-1)
 
                 if ori_logits.shape[-1] != all_length:
-                    cur_logits = torch.zeros(batch_s, len(processor.label_list[depth_idx]))
+                    cur_logits = torch.zeros(
+                        batch_s, len(processor.label_list[depth_idx])
+                    )
                     for i in range(cur_logits.shape[-1]):
-                        cur_logits[:, i] = torch.mean(hier_logits[0][:, list(hier_mapping[depth_idx][0][i])], dim=-1)
+                        cur_logits[:, i] = torch.mean(
+                            hier_logits[0][:, list(hier_mapping[depth_idx][0][i])],
+                            dim=-1,
+                        )
                 else:
                     cur_logits = torch.zeros(batch_s, all_length)
                     cd_labels = processor.depth2label[depth_idx]
                     for i in range(all_length):
                         if i in cd_labels:
-                            cur_logits[:, i] = torch.sum(hier_logits[0][:, list(flat_slot2value[i])], dim=-1)
+                            cur_logits[:, i] = torch.sum(
+                                hier_logits[0][:, list(flat_slot2value[i])], dim=-1
+                            )
 
                 cur_logits = cur_logits.to(device)
 
@@ -285,7 +360,9 @@ class HierVerbPromptForClassification(PromptForClassification):
                 elif mode == 1:
                     softmax_label_logits = torch.softmax(cur_logits, dim=-1)
                 elif mode == 2:
-                    softmax_label_logits = torch.softmax(cur_logits, dim=-1) + ori_logits
+                    softmax_label_logits = (
+                        torch.softmax(cur_logits, dim=-1) + ori_logits
+                    )
                     softmax_label_logits = torch.softmax(softmax_label_logits, dim=-1)
 
                 cur_preds = torch.argmax(softmax_label_logits, dim=-1).cpu().tolist()
@@ -318,7 +395,9 @@ class HierVerbPromptForClassification(PromptForClassification):
                 pred.append(sub_preds)
                 truth.append(sub_golds)
 
-        label_dict = dict({idx: label for idx, label in enumerate(processor.all_labels)})
+        label_dict = dict(
+            {idx: label for idx, label in enumerate(processor.all_labels)}
+        )
         if args is None:
             scores = compute_score(pred, truth, label_dict)
         else:
@@ -332,20 +411,24 @@ class HierVerbPromptForClassification(PromptForClassification):
             print(info)
 
     def state_dict(self, *args, **kwargs):
-        """ Save the model using template, plm and verbalizer's save methods."""
+        """Save the model using template, plm and verbalizer's save methods."""
         _state_dict = {}
         if not self.prompt_model.freeze_plm:
-            _state_dict['plm'] = self.plm.state_dict(*args, **kwargs)
-        _state_dict['template'] = self.template.state_dict(*args, **kwargs)
+            _state_dict["plm"] = self.plm.state_dict(*args, **kwargs)
+        _state_dict["template"] = self.template.state_dict(*args, **kwargs)
         for idx in range(self.verbLength):
-            _state_dict[f'verbalizer{idx}'] = self.__getattr__(f"verbalizer{idx}").state_dict(*args, **kwargs)
+            _state_dict[f"verbalizer{idx}"] = self.__getattr__(
+                f"verbalizer{idx}"
+            ).state_dict(*args, **kwargs)
         return _state_dict
 
     def load_state_dict(self, state_dict, *args, **kwargs):
-        """ Load the model using template, plm and verbalizer's load methods."""
-        if 'plm' in state_dict and not self.prompt_model.freeze_plm:
-            self.plm.load_state_dict(state_dict['plm'], *args, **kwargs)
-        self.template.load_state_dict(state_dict['template'], *args, **kwargs)
+        """Load the model using template, plm and verbalizer's load methods."""
+        if "plm" in state_dict and not self.prompt_model.freeze_plm:
+            self.plm.load_state_dict(state_dict["plm"], *args, **kwargs)
+        self.template.load_state_dict(state_dict["template"], *args, **kwargs)
 
         for idx in range(self.verbLength):
-            self.__getattr__(f"verbalizer{idx}").load_state_dict(state_dict[f'verbalizer{idx}'], *args, **kwargs)
+            self.__getattr__(f"verbalizer{idx}").load_state_dict(
+                state_dict[f"verbalizer{idx}"], *args, **kwargs
+            )
