@@ -1,0 +1,5 @@
+====================
+start_time 2024-12-14 01:33:57.688865
+end_time 2024-12-14 01:43:54.128436	model bert	model_name_or_path bert-base-uncased	result_file few_shot_train.txt	multi_mask 1	dropout 0.1	shuffle False	contrastive_logits 1	constraint_loss 1	cs_mode 0	dataset wos	eval_mode 0	use_hier_mean 1	freeze_plm 0	multi_label 0	multi_verb 1	use_scheduler1 1	use_scheduler2 1	constraint_alpha -1	imbalanced_weight True	imbalanced_weight_reverse True	device 0	lm_training 1	lr 5e-05	lr2 0.0001	max_grad_norm 1.0	max_seq_lens 512	use_new_ct 1	contrastive_loss 1	contrastive_alpha 0.99	contrastive_level 1	use_dropout_sim 1	batch_size 1	use_withoutWrappedLM False	mean_verbalizer True	lm_alpha 0.999	shot 1	seed 550	plm_eval_mode False	verbalizer soft	template_id 0	not_manual False	depth 2	gradient_accumulation_steps 1	max_epochs 20	early_stop 10	eval_full 0	
+best_macro macro_f1: 0.50053521556989806	micro_f1: 0.70094711078003621	acc: 0.7009471107800362	
+best_micro macro_f1: 0.50053521556989806	micro_f1: 0.70094711078003621	acc: 0.7009471107800362	
