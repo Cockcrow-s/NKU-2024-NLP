@@ -29,6 +29,9 @@ import logging
 
 import os
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
+
+
 # 设置环境变量
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
