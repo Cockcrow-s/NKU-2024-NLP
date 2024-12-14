@@ -204,7 +204,8 @@ def get_paths(out_dir, gpt2, method, task, do_zeroshot,
 def prepend_task_tokens(tokenizer, inputs, n_prefix):
     task_tokens = ["<TASK{}>".format(str(i).zfill(2)) for i in range(n_prefix)]
     tokenizer.add_tokens(task_tokens)
-    task_token_ids = tokenizer(" ".join(task_tokens), return_tensors="pt")["input_ids"]
+    task_token_ids = tokenizer(task_tokens, add_special_tokens=False, return_tensors="pt")["input_ids"]
+    task_token_ids = task_token_ids.view(1, -1)
     assert task_token_ids.shape[-1]==n_prefix
 
     def convert(inputs):
