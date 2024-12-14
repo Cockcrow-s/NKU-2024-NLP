@@ -257,7 +257,15 @@ def main():
     verbalizer_list = []
     label_list = processor.label_list
 
-    verbalizer_list.append(SoftVerbalizer(tokenizer, plm=plm, classes=label_list[i]))
+    for i in range(args.depth):
+        if "0.1.2" in openprompt.__path__[0]:
+            verbalizer_list.append(
+                SoftVerbalizer(tokenizer, model=plm, classes=label_list[i])
+            )
+        else:
+            verbalizer_list.append(
+                SoftVerbalizer(tokenizer, plm=plm, classes=label_list[i])
+            )
 
     print_info("loading prompt model")
     prompt_model = HierVerbPromptForClassification(
