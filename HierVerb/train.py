@@ -27,6 +27,12 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 
 import logging
 
+import os
+
+# 设置环境变量
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
@@ -251,15 +257,7 @@ def main():
     verbalizer_list = []
     label_list = processor.label_list
 
-    for i in range(args.depth):
-        if "0.1.2" in openprompt.__path__[0]:
-            verbalizer_list.append(
-                SoftVerbalizer(tokenizer, model=plm, classes=label_list[i])
-            )
-        else:
-            verbalizer_list.append(
-                SoftVerbalizer(tokenizer, model=plm, classes=label_list[i])
-            )
+    verbalizer_list.append(SoftVerbalizer(tokenizer, plm=plm, classes=label_list[i]))
 
     print_info("loading prompt model")
     prompt_model = HierVerbPromptForClassification(
